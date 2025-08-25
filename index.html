@@ -1,266 +1,233 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
-import { QRCodeCanvas } from "qrcode.react";
-import { motion } from "framer-motion";
-import { Download, Copy, RefreshCw, QrCode, Printer } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-
-// --- Helper utils ---
-const clean = (s) => (s || "").trim();
-const fmtJSON = (obj) => JSON.stringify(obj, null, 2);
-
-export default function VisitorQRApp() {
-  const [vehicleNo, setVehicleNo] = useState("");
-  const [houseToVisit, setHouseToVisit] = useState("");
-  const [visitorName, setVisitorName] = useState("");
-  const [idNumber, setIdNumber] = useState("");
-  const [size, setSize] = useState(256);
-  const [generated, setGenerated] = useState(false);
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    // Restore last entry from localStorage (handy when iterating)
-    const saved = localStorage.getItem("visitorQR:last");
-    if (saved) {
-      try {
-        const s = JSON.parse(saved);
-        setVehicleNo(s.vehicleNo || "");
-        setHouseToVisit(s.houseToVisit || "");
-        setVisitorName(s.visitorName || "");
-        setIdNumber(s.idNumber || "");
-      } catch {}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TPS3 Residential Visitor QR Generator</title>
+  <style>
+    :root { --bg:#f8fafc; --card:#ffffff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --accent:#0ea5e9; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:linear-gradient(#f8fafc,#fff); color:var(--ink)}
+    .wrap{max-width:1000px;margin:24px auto;padding:16px}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+    header .logo{background:#0f172a;color:#fff;padding:10px;border-radius:16px}
+    h1{margin:0;font-size:1.6rem}
+    p.lead{margin:2px 0 0;color:var(--muted)}
+    .grid{display:grid;gap:16px;grid-template-columns:1fr;}
+    @media(min-width:900px){.grid{grid-template-columns:1fr 1fr}}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:20px; padding:16px; box-shadow:0 4px 20px rgba(2,6,23,.04)}
+    .row{display:flex;flex-direction:column;margin-bottom:12px}
+    label{font-size:.9rem;color:var(--muted);margin-bottom:6px}
+    input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:1rem}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+    button{appearance:none;border:0;border-radius:14px;padding:10px 14px;font-weight:600;cursor:pointer}
+    .primary{background:#0f172a;color:#fff}
+    .secondary{background:#e2e8f0}
+    .outline{background:#fff;border:1px solid var(--line)}
+    .preview{display:flex;flex-direction:column;align-items:center}
+    .qrbox{background:#fff;border:1px solid var(--line);border-radius:20px;padding:16px}
+    .slider{display:flex;align-items:center;gap:10px;margin-top:8px}
+    .code{border:1px solid var(--line);background:#f1f5f9;border-radius:12px;padding:10px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.85rem; overflow:auto}
+    footer{margin-top:18px;text-align:center;color:var(--muted);font-size:.8rem}
+    /* print watermark */
+    @media print {
+      .wm{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);font-size:72px;letter-spacing:2px;color:#000;opacity:.08;pointer-events:none;user-select:none;white-space:nowrap;z-index:0}
     }
-  }, []);
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">QR</div>
+      <div>
+        <h1>TPS3 Residential Visitor QR Generator</h1>
+        <p class="lead">Create, preview, and download a QR code for guardhouse verification.</p>
+      </div>
+    </header>
 
-  const data = useMemo(() => {
-    const today = new Date();
-    const payload = {
-      type: "residential-visitor-pass",
-      version: 1,
-      vehicleNo: clean(vehicleNo),
-      houseToVisit: clean(houseToVisit),
-      visitorName: clean(visitorName),
-      idNumber: clean(idNumber),
-      issuedAt: today.toISOString(),
-      validityDate: today.toISOString().split("T")[0], // current date as validity date
-    };
-    return payload;
-  }, [vehicleNo, houseToVisit, visitorName, idNumber]);
-
-  const isValid = useMemo(() => {
-    // Basic validation rules (customize as needed)
-    if (!data.vehicleNo || !data.houseToVisit || !data.visitorName || !data.idNumber) return false;
-    if (data.vehicleNo.length < 3) return false;
-    if (data.idNumber.length < 4) return false;
-    return true;
-  }, [data]);
-
-  const handleGenerate = () => {
-    setGenerated(true);
-    localStorage.setItem(
-      "visitorQR:last",
-      JSON.stringify({ vehicleNo, houseToVisit, visitorName, idNumber })
-    );
-  };
-
-  const resetAll = () => {
-    setVehicleNo("");
-    setHouseToVisit("");
-    setVisitorName("");
-    setIdNumber("");
-    setGenerated(false);
-  };
-
-  const downloadPNG = () => {
-    const canvas = canvasRef.current?.querySelector("canvas");
-    if (!canvas) return;
-    const url = canvas.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `VisitorQR_${data.houseToVisit || "home"}.png`;
-    a.click();
-  };
-
-  const copyJSON = async () => {
-    try {
-      await navigator.clipboard.writeText(fmtJSON(data));
-      alert("Data JSON copied to clipboard");
-    } catch (e) {
-      console.error(e);
-      alert("Failed to copy");
-    }
-  };
-
-  const printPass = () => {
-    const w = window.open("", "_blank", "width=480,height=640");
-    if (!w) return;
-    const html = `<!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset=\"utf-8\" />
-        <title>Visitor Pass</title>
-        <style>
-          body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial; padding: 24px; position: relative; }
-          .card { position: relative; border: 1px solid #eee; border-radius: 16px; padding: 20px; background: #fff; }
-          h1 { font-size: 20px; margin: 0 0 12px; }
-          .row { margin: 6px 0; }
-          .label { color: #555; font-size: 12px; }
-          .val { font-weight: 600; font-size: 14px; }
-          .qr { display: flex; justify-content: center; margin-top: 16px; }
-          .muted { color: #777; font-size: 11px; margin-top: 12px; }
-          .wm { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); font-size: 64px; letter-spacing: 2px; color: #000; opacity: 0.06; pointer-events: none; user-select: none; white-space: nowrap; z-index: 0; }
-          @media print { .wm { opacity: 0.08; } }
-        </style>
-      </head>
-      <body>
-        <div class="wm">TPS3 Security System</div>
-        <div class="card">
-          <h1>Residential Visitor Pass</h1>
-          <div class="row"><span class="label">Visitor</span><div class="val">${data.visitorName}</div></div>
-          <div class="row"><span class="label">Vehicle No</span><div class="val">${data.vehicleNo}</div></div>
-          <div class="row"><span class="label">House to Visit</span><div class="val">${data.houseToVisit}</div></div>
-          <div class="row"><span class="label">ID Number</span><div class="val">${data.idNumber}</div></div>
-          <div class="row"><span class="label">Issued At</span><div class="val">${new Date(data.issuedAt).toLocaleString()}</div></div>
-          <div class="row"><span class="label">Valid On</span><div class="val">${data.validityDate}</div></div>
-          <div class="qr" id="qrc"></div>
-          <div class="muted">Scan at the guardhouse to verify visitor details.</div>
+    <div class="grid">
+      <!-- Form card -->
+      <div class="card">
+        <h2 style="margin-top:0">Visitor Details</h2>
+        <div class="row">
+          <label for="vehicle">Vehicle No <span style="color:#e11d48">*</span></label>
+          <input id="vehicle" placeholder="e.g. WXY 1234" />
         </div>
-        <script src="https://unpkg.com/qrcode.react/umd/qrcode.react.production.min.js"></script>
-        <script>
-          const container = document.getElementById('qrc');
-          const canvas = document.createElement('canvas');
-          container.appendChild(canvas);
-        </script>
-      </body>
-      </html>`;
-    w.document.write(html);
-    setTimeout(() => {
-      const srcCanvas = canvasRef.current?.querySelector("canvas");
-      if (!srcCanvas) return;
-      const imgURL = srcCanvas.toDataURL("image/png");
-      const img = w.document.createElement("img");
-      img.src = imgURL;
-      img.style.width = "220px";
-      img.style.marginTop = "12px";
-      w.document.getElementById("qrc").appendChild(img);
-      w.print();
-    }, 250);
-  };
-
-  const qrValue = useMemo(() => fmtJSON(data), [data]);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4 md:p-8">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-6 flex items-center gap-3">
-          <div className="rounded-2xl bg-slate-900 text-white p-2 shadow">
-            <QrCode className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl md:text-3xl font-semibold">TPS3 Residential Visitor QR Generator</h1>
-            <p className="text-slate-600 text-sm md:text-base">Create, preview, and download a QR code for guardhouse verification.</p>
-          </div>
-        </header>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Visitor Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="vehicle">Vehicle No <span className="text-rose-600">*</span></Label>
-                <Input id="vehicle" placeholder="eg. WXY 1234" value={vehicleNo} onChange={(e) => setVehicleNo(e.target.value.toUpperCase())} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="house">House to Visit <span className="text-rose-600">*</span></Label>
-                <Input id="house" placeholder="eg. 12, Jalan Mawar 3/5" value={houseToVisit} onChange={(e) => setHouseToVisit(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="name">Visitor Name <span className="text-rose-600">*</span></Label>
-                <Input id="name" placeholder="eg. Ali bin Abu" value={visitorName} onChange={(e) => setVisitorName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="idnum">Identification Number <span className="text-rose-600">*</span></Label>
-                <Input id="idnum" placeholder="eg. 880101-14-5678" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <Button onClick={handleGenerate} disabled={!isValid} className="rounded-2xl px-5">
-                  Generate QR
-                </Button>
-                <Button variant="secondary" onClick={resetAll} className="rounded-2xl" title="Reset form">
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {!isValid && (
-                <p className="text-xs text-rose-600">Fill in all required fields. Vehicle No & ID must be at least 3–4 characters.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>QR Preview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col items-center">
-                <motion.div
-                  ref={canvasRef}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.25 }}
-                  className="rounded-3xl bg-white p-4 shadow-sm border"
-                >
-                  <QRCodeCanvas
-                    value={qrValue}
-                    size={size}
-                    includeMargin
-                    level="M"
-                    imageSettings={undefined}
-                  />
-                </motion.div>
-                <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3 w-full">
-                  <Button onClick={downloadPNG} className="rounded-2xl inline-flex items-center justify-center gap-2">
-                    <Download className="h-4 w-4" /> Download PNG
-                  </Button>
-                  <Button variant="secondary" onClick={copyJSON} className="rounded-2xl inline-flex items-center justify-center gap-2">
-                    <Copy className="h-4 w-4" /> Copy Data JSON
-                  </Button>
-                  <Button variant="outline" onClick={printPass} className="rounded-2xl inline-flex items-center justify-center gap-2">
-                    <Printer className="h-4 w-4" /> Print Pass
-                  </Button>
-                  <div className="col-span-2 md:col-span-3 flex items-center gap-3 mt-2">
-                    <Label htmlFor="size" className="text-sm text-slate-600">QR Size</Label>
-                    <input
-                      id="size"
-                      type="range"
-                      min={192}
-                      max={384}
-                      value={size}
-                      onChange={(e) => setSize(parseInt(e.target.value))}
-                      className="w-full"
-                    />
-                    <span className="text-sm tabular-nums w-10 text-right">{size}px</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 w-full rounded-xl bg-slate-50 p-3 text-xs text-slate-600 border">
-                  <div className="font-semibold mb-1">Encoded JSON</div>
-                  <pre className="whitespace-pre-wrap break-all">{fmtJSON(data)}</pre>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <div class="row">
+          <label for="house">House to Visit <span style="color:#e11d48">*</span></label>
+          <input id="house" placeholder="e.g. 12, Jalan Mawar 3/5" />
         </div>
+        <div class="row">
+          <label for="name">Visitor Name <span style="color:#e11d48">*</span></label>
+          <input id="name" placeholder="e.g. Ali bin Abu" />
+        </div>
+        <div class="row">
+          <label for="idnum">Identification Number <span style="color:#e11d48">*</span></label>
+          <input id="idnum" placeholder="e.g. 880101-14-5678" />
+        </div>
+        <div class="actions">
+          <button class="primary" id="gen">Generate QR</button>
+          <button class="secondary" id="reset">Reset</button>
+        </div>
+        <div id="warn" style="color:#e11d48;font-size:.8rem;margin-top:6px;display:none">Fill in all required fields. Vehicle No & ID must be at least 3–4 characters.</div>
+      </div>
 
-        <footer className="mt-8 text-center text-xs text-slate-500">
-          Tip: Guards can scan with any standard QR app; the JSON keys are <code>vehicleNo</code>, <code>houseToVisit</code>, <code>visitorName</code>, <code>idNumber</code>, <code>validityDate</code>.
-        </footer>
+      <!-- Preview card -->
+      <div class="card preview">
+        <h2 style="margin-top:0">QR Preview</h2>
+        <div class="qrbox" id="qrbox"><div id="qrcode"></div></div>
+        <div class="actions" style="margin-top:12px">
+          <button class="primary" id="download">Download PNG</button>
+          <button class="secondary" id="copy">Copy Data JSON</button>
+          <button class="outline" id="print">Print Pass</button>
+        </div>
+        <div class="slider">
+          <label for="size">QR Size</label>
+          <input id="size" type="range" min="192" max="384" value="256" />
+          <span id="px">256px</span>
+        </div>
+        <div class="code" style="margin-top:12px">
+          <div style="font-weight:600;margin-bottom:6px">Encoded JSON</div>
+          <pre id="jsonOut">{}</pre>
+        </div>
       </div>
     </div>
-  );
-}
+
+    <footer>
+      Tip: Guards can scan with any standard QR app; JSON keys are <code>vehicleNo</code>, <code>houseToVisit</code>, <code>visitorName</code>, <code>idNumber</code>, <code>validityDate</code>.
+    </footer>
+  </div>
+
+  <!-- QR library (no-framework) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    const el = (id) => document.getElementById(id);
+    const up = (v) => (v||'').trim();
+
+    const state = { size: 256 };
+    let qr;
+
+    function payload() {
+      const today = new Date();
+      return {
+        type: 'residential-visitor-pass',
+        version: 1,
+        vehicleNo: up(el('vehicle').value).toUpperCase(),
+        houseToVisit: up(el('house').value),
+        visitorName: up(el('name').value),
+        idNumber: up(el('idnum').value),
+        issuedAt: today.toISOString(),
+        validityDate: today.toISOString().split('T')[0],
+      };
+    }
+
+    function validate(p){
+      if(!p.vehicleNo || !p.houseToVisit || !p.visitorName || !p.idNumber) return false;
+      if(p.vehicleNo.length < 3) return false;
+      if(p.idNumber.length < 4) return false;
+      return true;
+    }
+
+    function renderQR(){
+      const data = payload();
+      if(!validate(data)){
+        el('warn').style.display = 'block';
+        return;
+      }
+      el('warn').style.display = 'none';
+      el('jsonOut').textContent = JSON.stringify(data, null, 2);
+
+      const target = el('qrcode');
+      target.innerHTML = '';
+      qr = new QRCode(target, {
+        text: JSON.stringify(data),
+        width: state.size,
+        height: state.size,
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+      el('px').textContent = state.size + 'px';
+    }
+
+    function reset(){
+      ['vehicle','house','name','idnum'].forEach(id => el(id).value='');
+      el('qrcode').innerHTML = '';
+      el('jsonOut').textContent = '{}';
+      el('warn').style.display = 'none';
+    }
+
+    function downloadPNG(){
+      const canvas = el('qrcode').querySelector('canvas');
+      if(!canvas){ renderQR(); }
+      const cnv = el('qrcode').querySelector('canvas');
+      if(!cnv) return;
+      const url = cnv.toDataURL('image/png');
+      const a = document.createElement('a');
+      const house = up(el('house').value) || 'home';
+      a.href = url;
+      a.download = `VisitorQR_${house}.png`;
+      a.click();
+    }
+
+    function printPass(){
+      const data = payload();
+      if(!validate(data)) { renderQR(); return; }
+      const canvas = el('qrcode').querySelector('canvas');
+      if(!canvas) { renderQR(); }
+      const cnv = el('qrcode').querySelector('canvas');
+      const imgURL = cnv ? cnv.toDataURL('image/png') : '';
+
+      const w = window.open('', '_blank', 'width=480,height=640');
+      const html = `<!DOCTYPE html>
+        <html><head><meta charset='utf-8'><title>Visitor Pass</title>
+        <style>
+        body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Noto Sans,Ubuntu,Cantarell,Helvetica Neue,Arial; padding:24px;}
+        .wm{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-30deg);font-size:72px;letter-spacing:2px;color:#000;opacity:.08;pointer-events:none;user-select:none;white-space:nowrap;z-index:0}
+        .card{position:relative;border:1px solid #eee;border-radius:16px;padding:20px;background:#fff}
+        h1{font-size:20px;margin:0 0 12px}
+        .row{margin:6px 0}
+        .label{color:#555;font-size:12px}
+        .val{font-weight:600;font-size:14px}
+        .qr{display:flex;justify-content:center;margin-top:16px}
+        .muted{color:#777;font-size:11px;margin-top:12px}
+        </style></head>
+        <body>
+          <div class='wm'>TPS3 Security System</div>
+          <div class='card'>
+            <h1>Residential Visitor Pass</h1>
+            <div class='row'><span class='label'>Visitor</span><div class='val'>${data.visitorName}</div></div>
+            <div class='row'><span class='label'>Vehicle No</span><div class='val'>${data.vehicleNo}</div></div>
+            <div class='row'><span class='label'>House to Visit</span><div class='val'>${data.houseToVisit}</div></div>
+            <div class='row'><span class='label'>ID Number</span><div class='val'>${data.idNumber}</div></div>
+            <div class='row'><span class='label'>Issued At</span><div class='val'>${new Date(data.issuedAt).toLocaleString()}</div></div>
+            <div class='row'><span class='label'>Valid On</span><div class='val'>${data.validityDate}</div></div>
+            <div class='qr' id='qrc'></div>
+            <div class='muted'>Scan at the guardhouse to verify visitor details.</div>
+          </div>
+          <script>
+            const img = new Image();
+            img.src = '${imgURL}';
+            img.style.width = '220px';
+            img.style.marginTop = '12px';
+            document.getElementById('qrc').appendChild(img);
+            window.print();
+          <\/script>
+        </body></html>`;
+      w.document.write(html);
+    }
+
+    // wire up
+    el('gen').addEventListener('click', renderQR);
+    el('reset').addEventListener('click', reset);
+    el('download').addEventListener('click', downloadPNG);
+    el('copy').addEventListener('click', () => {
+      const data = payload();
+      if(!validate(data)) { renderQR(); return; }
+      navigator.clipboard.writeText(JSON.stringify(data,null,2))
+        .then(()=>alert('Data JSON copied to clipboard'))
+        .catch(()=>alert('Failed to copy'))
+    });
+    el('print').addEventListener('click', printPass);
+    el('size').addEventListener('input', (e)=>{ state.size = parseInt(e.target.value,10)||256; document.getElementById('px').textContent = state.size+'px'; renderQR(); });
+  </script>
+</body>
+</html>
